@@ -8,7 +8,7 @@ Clone into your ComfyUI `custom_nodes` folder and restart ComfyUI:
 
 ```bash
 cd ComfyUI/custom_nodes
-git clone <repo-url> scripts_nodes
+git clone https://github.com/baslack/scripts_nodes.git
 ```
 
 No extra dependencies are required.

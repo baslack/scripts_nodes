@@ -37,6 +37,34 @@ Notes:
 - If the selection isn't in the definition, the node fails with an error listing the valid entries.
 - Duplicate entries enumerate to the position of their first occurrence.
 
+### Latent Cache (`latent`)
+
+Saves a latent to disk so the nodes that produce it can be skipped on later runs, including after a restart. Typical use: put it after a first sampling pass and iterate on the refiner without re-running the first pass.
+
+| Input | Type | Description |
+|---|---|---|
+| `latent` | LATENT | The latent to cache. Only evaluated when the cache needs it. |
+| `mode` | COMBO | `auto`, `write`, `read` or `off`. Default `auto`. |
+| `name` | STRING | Cache file name, saved as `output/latent_cache/<name>.latent`. Letters, digits, `.`, `_` and `-` only. |
+
+| Output | Type | Description |
+|---|---|---|
+| `latent` | LATENT | The cached or upstream latent. |
+
+Modes:
+
+- `auto`: loads the cache if it was saved from the same upstream graph, otherwise runs the upstream nodes and saves the result. Changing a seed, prompt, model, LoRA or any other upstream setting causes a re-run.
+- `write`: always runs the upstream nodes and saves the result.
+- `read`: always loads the cache without running the upstream nodes, even if they have changed since it was saved.
+- `off`: passes the latent through without touching the disk.
+
+Notes:
+
+- The upstream nodes are only skipped if nothing else uses their output. Route other consumers, such as preview decodes, through this node's output.
+- `auto` sees file names, not file contents. If you replace an input image or model file but keep its name, use `write`.
+- A randomized seed changes on every run, so `auto` will always re-run. Fix the seed, or use `read`.
+- Audio-video latents (MiniMax H3, LTX 2) are supported.
+
 ## License
 
 [MIT](LICENSE)

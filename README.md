@@ -65,6 +65,36 @@ Notes:
 - A randomized seed changes on every run, so `auto` will always re-run. Fix the seed, or use `read`.
 - Audio-video latents (MiniMax H3, LTX 2) are supported.
 
+### Remove Preview Override (`utils`)
+
+Removes a named hook from a model, by default the live preview that [KJNodes](https://github.com/kijai/ComfyUI-KJNodes)' Model Preview Override attaches. Typical use: preview the first sampling pass but not the refine pass that uses the same model.
+
+| Input | Type | Description |
+|---|---|---|
+| `model` | MODEL | The model. |
+| `name` | STRING | The name the hook was registered under. Default `kj_preview_override`. |
+
+| Output | Type | Description |
+|---|---|---|
+| `model` | MODEL | A copy of the model without that hook. |
+
+Notes:
+
+- The original model keeps the hook, so samplers that use it are still previewed.
+- A model without the hook, for example with the preview node bypassed, passes through unchanged.
+- `kj_preview_override` is KJNodes' internal name. If a KJNodes update renames it, the preview comes back on the refine pass; put the new name in `name`.
+
+## Tests
+
+Run with ComfyUI's own Python; `pytest` is the only extra package. The GPU is not used.
+
+```powershell
+cd <this repo>
+$env:COMFYUI_PATH = "<ComfyUI checkout>"
+$env:CUDA_VISIBLE_DEVICES = "-1"
+<ComfyUI python> -m pytest tests
+```
+
 ## License
 
 [MIT](LICENSE)

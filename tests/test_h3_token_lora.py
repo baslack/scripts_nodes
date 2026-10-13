@@ -158,3 +158,27 @@ def test_refuses_a_lora_without_block_layers(tmp_path):
     model = _h3()
     with pytest.raises(ValueError, match="no LoRA layers in the H3 transformer blocks"):
         _apply(_patcher(model), "outside_only.safetensors")
+
+
+def test_lora_weights_move_with_the_model_but_keep_their_precision(lora):
+    moved = []
+
+    class Chained:
+        def __call__(self, args, extra):
+            return extra["original_block"](args)
+
+        def to(self, device_or_dtype):
+            moved.append(device_or_dtype)
+            return self
+
+    base = _patcher(_h3())
+    base.set_model_patch_replace(Chained(), "dit", "double_block", 0)
+    patched = _apply(base, lora[0])
+    # What ComfyUI does when it loads the model onto its device.
+    patched.model_patches_to(torch.device("meta"))
+    patched.model_patches_to(torch.int8)
+
+    patches = patched.model_options["transformer_options"]["patches_replace"]["dit"]
+    tensors = [t for patch in patches.values() for _, down, up, _ in patch.layers for t in (down, up)]
+    assert tensors and all(t.device.type == "meta" and t.dtype == torch.float32 for t in tensors)
+    assert moved == [torch.device("meta"), torch.int8]

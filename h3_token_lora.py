@@ -1,6 +1,8 @@
 import logging
 import re
 
+import torch
+
 import comfy.lora
 import comfy.utils
 import comfy.weight_adapter
@@ -39,6 +41,18 @@ class TokenRowsPatch:
         self.layers = layers
         self.kinds = ROW_KINDS[tokens]
         self.previous = previous
+
+    def to(self, device_or_dtype):
+        """Move the LoRA weights with the model; ComfyUI calls this when it loads and unloads it.
+
+        Dtype casts are skipped: the model dtype can be a storage format such as int8.
+        """
+        if isinstance(device_or_dtype, torch.device):
+            self.layers = [(path, down.to(device_or_dtype), up.to(device_or_dtype), scale)
+                           for path, down, up, scale in self.layers]
+        if hasattr(self.previous, "to"):
+            self.previous = self.previous.to(device_or_dtype)
+        return self
 
     def __call__(self, args, extra):
         spans = [(a, b) for a, b, kind in args["layout"].segments if kind in self.kinds]

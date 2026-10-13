@@ -84,6 +84,28 @@ Notes:
 - A model without the hook, for example with the preview node bypassed, passes through unchanged.
 - `kj_preview_override` is KJNodes' internal name. If a KJNodes update renames it, the preview comes back on the refine pass; put the new name in `name`.
 
+### H3 LoRA on Audio or Video Tokens (`loaders`)
+
+Applies a LoRA to only the audio tokens, or only the video tokens, of a MiniMax H3 model. H3 runs video and audio through the same transformer weights, so a normal LoRA changes both; use this one to take, say, a voice LoRA's sound without its effect on the picture.
+
+| Input | Type | Description |
+|---|---|---|
+| `model` | MODEL | A MiniMax H3 model. |
+| `lora_name` | COMBO | A LoRA in `models/loras`. |
+| `strength` | FLOAT | Multiplier on the LoRA's change. Default `1.0`. |
+| `tokens` | COMBO | `audio` or `video`: the stream the LoRA changes. Default `audio`. |
+
+| Output | Type | Description |
+|---|---|---|
+| `model` | MODEL | A copy of the model with the LoRA limited to those tokens. |
+
+Notes:
+
+- The weights are left alone. While each transformer block runs, the LoRA's change is added only to the chosen stream's rows of each LoRA'd layer. Reference and keyframe rows count with their stream.
+- The other stream still reacts: H3's video attends to its audio, so changed audio still shapes the video, as it does for lip sync. Only the weights it sees stay untouched.
+- Layers outside the transformer blocks, such as a LoRA's text-refiner layers, are left out; the log says how many.
+- Plain LoRA only: LoCon mid weights, DoRA, LoHa and LoKr are refused. It chains with other nodes' block patches and with ordinary LoRA loaders.
+
 ## Tests
 
 Run with ComfyUI's own Python; `pytest` is the only extra package. The GPU is not used.

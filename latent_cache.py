@@ -167,6 +167,8 @@ class LatentCache(ComfyNodeABC):
 
     The ``latent`` input is lazy: on a cache hit it is never evaluated, so the
     upstream sampler does not run, as long as nothing else needs its output.
+    It is also optional, so muting the sampler leaves a node that still loads
+    the saved latent when something asks for it.
     """
 
     @classmethod
@@ -174,14 +176,17 @@ class LatentCache(ComfyNodeABC):
         """Declare the node inputs.
 
         Returns:
-            The lazy ``latent``, the ``mode`` combo, the cache ``name``, and the
-            hidden prompt and node id used to hash the upstream graph.
+            The ``mode`` combo, the cache ``name``, the optional lazy
+            ``latent``, and the hidden prompt and node id used to hash the
+            upstream graph.
         """
         return {
             "required": {
-                "latent": (IO.LATENT, {"lazy": True}),
                 "mode": (["auto", "write", "read", "off"], {"default": "auto"}),
                 "name": (IO.STRING, {"default": "latent_cache"}),
+            },
+            "optional": {
+                "latent": (IO.LATENT, {"lazy": True}),
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -204,7 +209,8 @@ class LatentCache(ComfyNodeABC):
             unique_id: This node's id.
 
         Returns:
-            ``True`` for ``read``, and for ``auto`` when the stored upstream
+            ``True`` for ``read``, and for ``auto`` when a cache exists and
+            either nothing is connected to ``latent`` or the stored upstream
             hash matches the current graph.
         """
         if mode == "read":
@@ -212,7 +218,9 @@ class LatentCache(ComfyNodeABC):
         if mode != "auto":
             return False
         metadata = read_metadata(cache_path(name))
-        return metadata is not None and metadata["upstream"] == upstream_hash(prompt, unique_id)
+        if metadata is None:
+            return False
+        return "latent" not in prompt[unique_id]["inputs"] or metadata["upstream"] == upstream_hash(prompt, unique_id)
 
     def check_lazy_status(self, mode: str, name: str, prompt: dict, unique_id: str, latent: dict | None = None) -> list[str]:
         """Request ``latent`` only on a cache miss.
@@ -225,8 +233,10 @@ class LatentCache(ComfyNodeABC):
             latent: The upstream latent, if already evaluated.
 
         Returns:
-            ``[]`` on a hit, otherwise ``["latent"]``.
+            ``[]`` on a hit or when nothing is connected, otherwise ``["latent"]``.
         """
+        if "latent" not in prompt[unique_id]["inputs"]:
+            return []
         return [] if self.is_hit(mode, name, prompt, unique_id) else ["latent"]
 
     def cache(self, mode: str, name: str, prompt: dict, unique_id: str, latent: dict | None = None) -> tuple[dict]:
@@ -243,11 +253,17 @@ class LatentCache(ComfyNodeABC):
 
         Returns:
             The cached or upstream latent.
+
+        Raises:
+            ValueError: If the latent is needed but nothing is connected.
         """
+        hit = mode != "off" and self.is_hit(mode, name, prompt, unique_id)
+        if not hit and latent is None:
+            raise ValueError(f"LatentCache: '{name}' has no latent connected and no saved cache to load in mode '{mode}'.")
         if mode == "off":
             return (latent,)
         path = cache_path(name)
-        if self.is_hit(mode, name, prompt, unique_id):
+        if hit:
             logging.info(f"LatentCache: loaded '{name}'")
             return (load_latent(path),)
         save_latent(path, latent, upstream_hash(prompt, unique_id))

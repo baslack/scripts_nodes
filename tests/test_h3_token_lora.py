@@ -182,3 +182,5 @@ def test_lora_weights_move_with_the_model_but_keep_their_precision(lora):
     tensors = [t for patch in patches.values() for _, down, up, _ in patch.layers for t in (down, up)]
     assert tensors and all(t.device.type == "meta" and t.dtype == torch.float32 for t in tensors)
     assert moved == [torch.device("meta"), torch.int8]
+    # Meta tensors can't move back, which the patcher tries when it is garbage collected.
+    patches.clear()

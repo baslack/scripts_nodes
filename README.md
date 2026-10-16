@@ -55,6 +55,7 @@ Saves a latent to disk so the nodes that produce it can be skipped on later runs
 Modes:
 
 - `auto`: loads the cache if it was saved from the same upstream graph, otherwise runs the upstream nodes and saves the result. Changing a seed, prompt, model, LoRA or any other upstream setting causes a re-run.
+  Inputs that only name things don't count: a node marks such an input with the option `latent_cache_ignore: True` (MiniMax H3's Disk Join and Continue Video do for `project`, and this node for `directory`), so renaming a project or moving a cache doesn't cause a re-run.
 - `write`: always runs the upstream nodes and saves the result.
 - `read`: always loads the cache without running the upstream nodes, even if they have changed since it was saved.
 - `off`: passes the latent through without touching the disk.

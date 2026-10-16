@@ -130,3 +130,40 @@ def test_moving_a_cache_to_another_folder_keeps_the_caches_after_it(output_dir):
     hash_of = latent_cache.upstream_hash
     assert hash_of(moved, "9") == hash_of(first, "9")
     assert hash_of(renamed, "9") != hash_of(first, "9")
+
+
+class NamedJoin:
+    """Stands in for a node with a naming-only input, like MiniMax H3 Disk Join's project."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"samples": ("LATENT",)},
+                "optional": {"project": ("H3_PROJECT", {latent_cache.IGNORE_OPTION: True}), "fps": ("FLOAT",)}}
+
+
+def _joined(project, fps=24.0):
+    return {"5": {"class_type": "KSampler", "inputs": {"seed": 1}},
+            "6": {"class_type": "NamedJoin", "inputs": {"samples": ["5", 0], "project": project, "fps": fps}},
+            "9": {"class_type": "LatentCache", "inputs": {"latent": ["6", 0], "mode": "auto", "name": "unit_2"}}}
+
+
+def test_naming_only_inputs_upstream_dont_change_the_hash(monkeypatch):
+    import nodes
+    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "NamedJoin", NamedJoin)
+    hash_of = latent_cache.upstream_hash
+    assert hash_of(_joined("cabin"), "9") == hash_of(_joined("cabin-renamed"), "9")
+    assert hash_of(_joined("cabin"), "9") != hash_of(_joined("cabin", fps=30.0), "9")
+
+
+def test_a_cache_saved_before_naming_only_inputs_loads_and_is_upgraded(monkeypatch):
+    import nodes
+    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "NamedJoin", NamedJoin)
+    prompt = _joined("cabin")
+    path = latent_cache.cache_path("unit_2")
+    latent_cache.save_latent(path, _latent(3), latent_cache.upstream_hash(prompt, "9", legacy=True))
+
+    node = _node()
+    assert node.check_lazy_status(mode="auto", name="unit_2", prompt=prompt, unique_id="9") == []
+    out = node.cache(mode="auto", name="unit_2", prompt=prompt, unique_id="9")[0]
+    torch.testing.assert_close(out["samples"], _latent(3)["samples"])
+    assert latent_cache.read_metadata(path)["upstream"] == latent_cache.upstream_hash(prompt, "9")

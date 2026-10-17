@@ -20,20 +20,14 @@ NAME_PATTERN = re.compile(r"[A-Za-z0-9._-]+")
 IGNORE_OPTION = "latent_cache_ignore"
 
 
-def _inside(root: str, path: str) -> bool:
-    try:
-        return os.path.commonpath([root, path]) == root
-    except ValueError:  # on another drive
-        return False
-
-
 def cache_path(name: str, directory: str | None = None) -> str:
     """Resolve a cache name to its file.
 
     Args:
         name: The cache name. Letters, digits, ``.``, ``_`` and ``-`` only.
-        directory: The folder to keep it in, inside ComfyUI's user or output
-            directory. ``output/latent_cache`` when not given.
+        directory: The folder to keep it in, inside ComfyUI's user directory,
+            the default user's folder (which may be a link to elsewhere) or
+            the output directory. ``output/latent_cache`` when not given.
 
     Returns:
         The absolute path of ``<name>.latent``.
@@ -45,9 +39,10 @@ def cache_path(name: str, directory: str | None = None) -> str:
     if not NAME_PATTERN.fullmatch(name):
         raise ValueError(f"LatentCache: name '{name}' may only contain letters, digits, '.', '_' and '-'")
     if directory:
-        cache_dir = os.path.realpath(directory)
-        roots = [os.path.realpath(folder_paths.get_user_directory()), os.path.realpath(folder_paths.get_output_directory())]
-        if not any(_inside(root, cache_dir) for root in roots):
+        cache_dir = os.path.abspath(directory)
+        user = folder_paths.get_user_directory()
+        roots = [user, os.path.join(user, "default"), folder_paths.get_output_directory()]
+        if not any(folder_paths.is_within_directory(root, cache_dir) for root in roots):
             raise ValueError(f"LatentCache: directory '{directory}' is outside ComfyUI's user and output directories")
     else:
         cache_dir = os.path.abspath(os.path.join(folder_paths.get_output_directory(), "latent_cache"))

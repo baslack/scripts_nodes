@@ -46,7 +46,7 @@ Saves a latent to disk so the nodes that produce it can be skipped on later runs
 | `latent` | LATENT | The latent to cache. Only evaluated when the cache needs it. |
 | `mode` | COMBO | `auto`, `write`, `read` or `off`. Default `auto`. |
 | `name` | STRING | Cache file name, saved as `<name>.latent` in `directory`. Letters, digits, `.`, `_` and `-` only. |
-| `directory` | STRING (optional) | The folder to keep the cache in, inside ComfyUI's user or output directory, such as a MiniMax H3 Project's `latent_directory`. Default `output/latent_cache`. Moving a cache to another folder doesn't make the caches after it re-run. |
+| `directory` | STRING (optional) | The folder to keep the cache in, inside ComfyUI's user directory (the default user's folder may be a link to elsewhere) or output directory, such as a MiniMax H3 Project's `latent_directory`. Default `output/latent_cache`. Moving a cache to another folder doesn't make the caches after it re-run. |
 
 | Output | Type | Description |
 |---|---|---|

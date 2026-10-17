@@ -4,6 +4,7 @@ A node whose upstream sampler is muted arrives without its ``latent`` input:
 the editor drops links from muted nodes when it queues the prompt.
 """
 import json
+import os
 
 import pytest
 import torch
@@ -167,3 +168,49 @@ def test_a_cache_saved_before_naming_only_inputs_loads_and_is_upgraded(monkeypat
     out = node.cache(mode="auto", name="unit_2", prompt=prompt, unique_id="9")[0]
     torch.testing.assert_close(out["samples"], _latent(3)["samples"])
     assert latent_cache.read_metadata(path)["upstream"] == latent_cache.upstream_hash(prompt, "9")
+
+
+def _link_folder(target, link):
+    """A directory junction on Windows (no privileges needed), a symlink elsewhere."""
+    target.mkdir(parents=True, exist_ok=True)
+    link.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if os.name == "nt":
+            import _winapi
+            _winapi.CreateJunction(str(target), str(link))
+        else:
+            os.symlink(target, link, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"can't link folders here: {exc}")
+
+
+@pytest.fixture
+def user_dir(tmp_path):
+    user = tmp_path / "comfyui" / "user"
+    user.mkdir(parents=True)
+    original = folder_paths.get_user_directory()
+    folder_paths.set_user_directory(str(user))
+    yield user
+    folder_paths.set_user_directory(original)
+
+
+def _outside(tmp_path, name):
+    # Beside tmp_path, which the autouse fixture makes the output directory.
+    return tmp_path.parent / f"{tmp_path.name}_{name}"
+
+
+def test_a_default_user_folder_kept_elsewhere_by_a_junction_is_allowed(tmp_path, user_dir):
+    # A setup that keeps user/default outside the ComfyUI checkout, so the checkout can be wiped.
+    kept = _outside(tmp_path, "kept") / "default"
+    _link_folder(kept, user_dir / "default")
+    folder = user_dir / "default" / "h3_extender_cache" / "chain_cabin.latents"
+    _run_in(str(folder), "auto", _latent(3))
+    assert (kept / "h3_extender_cache" / "chain_cabin.latents" / "unit_2.latent").is_file()
+    needed, out = _run_in(str(folder), "auto")
+    assert needed == []
+
+
+def test_another_link_out_of_the_user_directory_is_refused(tmp_path, user_dir):
+    _link_folder(_outside(tmp_path, "elsewhere"), user_dir / "shortcut")
+    with pytest.raises(ValueError, match="outside ComfyUI's user and output directories"):
+        _run_in(str(user_dir / "shortcut" / "chain_cabin.latents"), "auto", _latent(3))

@@ -18,6 +18,13 @@ FORMAT = "scripts_nodes.latent_cache/1"
 NAME_PATTERN = re.compile(r"[A-Za-z0-9._-]+")
 # An input option that marks an input as naming only, such as a project name: the upstream hash skips it.
 IGNORE_OPTION = "latent_cache_ignore"
+# TODO: drop these, and the upgrade in LatentCache.cache, once caches saved under them are gone.
+# What the hash skipped before latent_cache_ignore, then before MiniMax H3 Disk Join's chain settings set it.
+LEGACY_IGNORED = (
+    {"LatentCache": frozenset({"directory"})},
+    {"LatentCache": frozenset({"directory"}), "MiniMaxH3MotionContextDiskJoin": frozenset({"project"}),
+     "MiniMaxH3ContinueVideo": frozenset({"project"})},
+)
 
 
 def cache_path(name: str, directory: str | None = None) -> str:
@@ -52,10 +59,8 @@ def cache_path(name: str, directory: str | None = None) -> str:
     return path
 
 
-def _ignored_inputs(class_type: str, legacy: bool) -> frozenset:
+def _ignored_inputs(class_type: str) -> frozenset:
     """The inputs of a node class the upstream hash skips."""
-    if legacy:
-        return frozenset({"directory"}) if class_type == "LatentCache" else frozenset()
     node_class = NODE_CLASS_MAPPINGS.get(class_type) or nodes.NODE_CLASS_MAPPINGS.get(class_type)
     if node_class is None:
         return frozenset()
@@ -66,7 +71,7 @@ def _ignored_inputs(class_type: str, legacy: bool) -> frozenset:
     )
 
 
-def upstream_hash(prompt: dict, node_id: str, input_name: str = "latent", legacy: bool = False) -> str:
+def upstream_hash(prompt: dict, node_id: str, input_name: str = "latent", legacy: dict | None = None) -> str:
     """Hash everything that feeds one input of a node.
 
     Each upstream node is hashed from its class and literal inputs, with links
@@ -79,8 +84,8 @@ def upstream_hash(prompt: dict, node_id: str, input_name: str = "latent", legacy
         prompt: The API-format prompt.
         node_id: The node whose input is hashed.
         input_name: The input to hash.
-        legacy: Hash the way caches saved before ``latent_cache_ignore`` were
-            hashed, skipping only a Latent Cache's ``directory``.
+        legacy: One of ``LEGACY_IGNORED``, to hash the way older caches were
+            hashed, skipping only the inputs it names.
 
     Returns:
         A hex SHA-256 digest.
@@ -97,7 +102,7 @@ def upstream_hash(prompt: dict, node_id: str, input_name: str = "latent", legacy
         if nid not in memo:
             node = prompt[nid]
             if node["class_type"] not in ignored:
-                ignored[node["class_type"]] = _ignored_inputs(node["class_type"], legacy)
+                ignored[node["class_type"]] = _ignored_inputs(node["class_type"]) if legacy is None else legacy.get(node["class_type"], frozenset())
             skip = ignored[node["class_type"]]
             inputs = {k: value_key(v) for k, v in node["inputs"].items() if k not in skip}
             data = json.dumps([node["class_type"], inputs], sort_keys=True)
@@ -106,6 +111,11 @@ def upstream_hash(prompt: dict, node_id: str, input_name: str = "latent", legacy
 
     data = json.dumps(value_key(prompt[node_id]["inputs"][input_name]), sort_keys=True)
     return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+def _hashes(prompt: dict, node_id: str) -> list[str]:
+    """The current upstream hash of ``latent``, then its hash under each of ``LEGACY_IGNORED``."""
+    return [upstream_hash(prompt, node_id)] + [upstream_hash(prompt, node_id, legacy=rule) for rule in LEGACY_IGNORED]
 
 
 def save_latent(path: str, latent: dict, upstream: str) -> None:
@@ -259,7 +269,7 @@ class LatentCache(ComfyNodeABC):
             return False
         if "latent" not in prompt[unique_id]["inputs"]:
             return True
-        return metadata["upstream"] in (upstream_hash(prompt, unique_id), upstream_hash(prompt, unique_id, legacy=True))
+        return metadata["upstream"] in _hashes(prompt, unique_id)
 
     def check_lazy_status(self, mode: str, name: str, prompt: dict, unique_id: str, latent: dict | None = None,
                           directory: str | None = None) -> list[str]:
@@ -308,10 +318,10 @@ class LatentCache(ComfyNodeABC):
         path = cache_path(name, directory)
         if hit:
             loaded = load_latent(path)
-            # TODO: drop this upgrade, and legacy=True, once caches saved before latent_cache_ignore are gone.
             if "latent" in prompt[unique_id]["inputs"]:
-                current = upstream_hash(prompt, unique_id)
-                if read_metadata(path)["upstream"] == upstream_hash(prompt, unique_id, legacy=True) != current:
+                current, *legacy = _hashes(prompt, unique_id)
+                stored = read_metadata(path)["upstream"]
+                if stored != current and stored in legacy:
                     save_latent(path, loaded, current)
                     logging.info(f"LatentCache: upgraded the stored hash of '{name}'")
             logging.info(f"LatentCache: loaded '{name}'")

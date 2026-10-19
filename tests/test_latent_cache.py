@@ -161,13 +161,45 @@ def test_a_cache_saved_before_naming_only_inputs_loads_and_is_upgraded(monkeypat
     monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "NamedJoin", NamedJoin)
     prompt = _joined("cabin")
     path = latent_cache.cache_path("unit_2")
-    latent_cache.save_latent(path, _latent(3), latent_cache.upstream_hash(prompt, "9", legacy=True))
+    latent_cache.save_latent(path, _latent(3), latent_cache.upstream_hash(prompt, "9", legacy=latent_cache.LEGACY_IGNORED[0]))
 
     node = _node()
     assert node.check_lazy_status(mode="auto", name="unit_2", prompt=prompt, unique_id="9") == []
     out = node.cache(mode="auto", name="unit_2", prompt=prompt, unique_id="9")[0]
     torch.testing.assert_close(out["samples"], _latent(3)["samples"])
     assert latent_cache.read_metadata(path)["upstream"] == latent_cache.upstream_hash(prompt, "9")
+
+
+
+class DiskJoin:
+    """Stands in for MiniMax H3 Disk Join, whose chain settings became naming-only after its project."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        ignore = {latent_cache.IGNORE_OPTION: True}
+        return {"required": {"samples": ("LATENT",), "validated": ("BOOLEAN", ignore)},
+                "optional": {"project": ("H3_PROJECT", ignore)}}
+
+
+def _after_join(validated):
+    return {"5": {"class_type": "KSampler", "inputs": {"seed": 1}},
+            "6": {"class_type": "MiniMaxH3MotionContextDiskJoin", "inputs": {"samples": ["5", 0], "validated": validated, "project": "cabin"}},
+            "7": {"class_type": "KSampler", "inputs": {"seed": 2, "latent_image": ["6", 1]}},
+            "9": {"class_type": "LatentCache", "inputs": {"latent": ["7", 0], "mode": "auto", "name": "unit_2"}}}
+
+
+def test_a_cache_saved_before_disk_join_settings_were_naming_only_loads_and_is_upgraded(monkeypatch):
+    import nodes
+    monkeypatch.setitem(nodes.NODE_CLASS_MAPPINGS, "MiniMaxH3MotionContextDiskJoin", DiskJoin)
+    path = latent_cache.cache_path("unit_2")
+    latent_cache.save_latent(path, _latent(3), latent_cache.upstream_hash(_after_join(False), "9", legacy=latent_cache.LEGACY_IGNORED[1]))
+
+    node = _node()
+    for validated in (False, True):  # Upgraded on the first run, so validating the previous clip later still hits.
+        prompt = _after_join(validated)
+        assert node.check_lazy_status(mode="auto", name="unit_2", prompt=prompt, unique_id="9") == []
+        out = node.cache(mode="auto", name="unit_2", prompt=prompt, unique_id="9")[0]
+        torch.testing.assert_close(out["samples"], _latent(3)["samples"])
 
 
 def _link_folder(target, link):

@@ -110,27 +110,25 @@ Notes:
 
 ### H3 Audio Lock (`latent`)
 
-Keeps a song in a MiniMax H3 clip. H3 does not hold a reference song: reference audio and guides only steer the audio, and the sampler still generates it. This node encodes the song piece with the H3 audio VAE, writes it into the audio half of the AV latent, and lowers the audio noise mask over it so the sampler keeps it.
+Keeps a song in a MiniMax H3 clip. H3 does not hold a reference song: reference audio and guides only steer the audio, and the sampler still generates it. This node encodes the clip's window of the song with the H3 audio VAE, writes it into the audio half of the AV latent, and lowers the audio noise mask over it so the sampler keeps it.
 
 | Input | Type | Description |
 |---|---|---|
 | `latent` | LATENT | The AV latent the sampler will denoise. |
 | `audio_vae` | VAE | The H3 audio VAE. |
-| `audio` | AUDIO | This clip's song piece. |
-| `lock_strength` | FLOAT | How firmly the piece is held, 0 to 1. The audio mask over the piece is `1 - lock_strength`, so `1` keeps it as is. `0` returns the latent unchanged. Default `1.0`. |
-| `trim_frames` | INT, optional | Overlap pixel frames carried from the previous clip. Default `0`. |
+| `audio` | AUDIO | This clip's window of the song, already cut. |
+| `lock_strength` | FLOAT | How firmly the window is held, 0 to 1. The audio mask over the window is `1 - lock_strength`, so `1` keeps it as is. `0` returns the latent unchanged. Default `1.0`. |
 
 | Output | Type | Description |
 |---|---|---|
 | `latent` | LATENT | The latent with the piece written in and `noise_mask` set. |
-| `audio` | AUDIO | The piece as given, for muxing later. |
+| `audio` | AUDIO | The window as given, for muxing later. |
 
 Notes:
 
-- Cut the song into back-to-back pieces, one per clip. A clip after the first starts with `trim_frames` pixel frames (about 22) carried from the previous clip, so its piece starts at that clip's first new frame: set `trim_frames` to the Motion Context RAM's `trim_frames`. The overlap's audio stays untouched and unlocked. With `0` the piece starts at the clip's first frame.
-- The audio latent runs at 40 frames per second, which is 5/3 per pixel frame at H3's fixed 24 fps. The start is `round(trim_frames / 24 * 40)`; the clip's own playback fps does not change it.
+- Cut each clip's exact window from one uncut track before this node, for example with Trim Audio Duration, and pass that window. It is written from audio-latent frame 0. The audio latent runs at 40 frames per second, which is 5/3 per pixel frame at H3's fixed 24 fps, so a clip of `17n + 5` pixel frames has `round(frames / 24 * 40)` audio frames.
 - Mono audio is made stereo and resampled to the audio VAE's rate. A piece that runs past the clip's end is cropped; a shorter one leaves the rest of the audio unlocked.
-- The video mask is the latent's existing `noise_mask` video part, or all ones. The audio mask is `1 - lock_strength` over the piece and `1` elsewhere.
+- The video mask is the latent's existing `noise_mask` video part, or all ones. The audio mask is `1 - lock_strength` over the window and `1` elsewhere.
 
 ## Tests
 

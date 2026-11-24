@@ -3,19 +3,21 @@ import torch
 import comfy.audio
 import comfy.nested_tensor
 from comfy.comfy_types import IO, ComfyNodeABC, InputTypeDict
-from comfy_extras.nodes_minimax_h3 import AUDIO_LATENT_FPS, FPS as H3_FPS, _encode_ref_audio
+from comfy_extras.nodes_minimax_h3 import _encode_ref_audio
 
 
 class H3AudioLock(ComfyNodeABC):
-    """Holds a song piece in the audio half of a MiniMax H3 AV latent.
+    """Holds a song window in the audio half of a MiniMax H3 AV latent.
 
     H3 does not keep a reference song: reference audio and guides only steer
-    the audio, and the sampler still generates it. This node encodes the piece
-    with the audio VAE, writes it into the latent's audio half and lowers the
-    audio noise mask over it, so the sampler keeps it.
+    the audio, and the sampler still generates it. This node encodes the clip's
+    window of the song with the audio VAE, writes it into the latent's audio
+    half from its first frame and lowers the audio noise mask over it, so the
+    sampler keeps it.
 
-    The audio latent runs at 40 frames per second, which is 5/3 per pixel frame
-    at H3's 24 fps. An AV latent of ``17n + 5`` pixel frames carries
+    The window must be cut to the clip's exact span beforehand. The audio
+    latent runs at 40 frames per second, which is 5/3 per pixel frame at H3's
+    24 fps, so an AV latent of ``17n + 5`` pixel frames carries
     ``round(frames / 24 * 40)`` audio frames.
     """
 
@@ -25,11 +27,8 @@ class H3AudioLock(ComfyNodeABC):
             "required": {
                 "latent": (IO.LATENT, {"tooltip": "The AV latent the sampler will denoise."}),
                 "audio_vae": (IO.VAE, {"tooltip": "The H3 audio VAE."}),
-                "audio": (IO.AUDIO, {"tooltip": "This clip's song piece."}),
-                "lock_strength": (IO.FLOAT, {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.05, "tooltip": "How firmly the piece is held. 0 leaves the latent unchanged."}),
-            },
-            "optional": {
-                "trim_frames": (IO.INT, {"default": 0, "min": 0, "max": 100000, "tooltip": "Overlap pixel frames from the previous clip. The piece starts after them."}),
+                "audio": (IO.AUDIO, {"tooltip": "This clip's window of the song, already cut."}),
+                "lock_strength": (IO.FLOAT, {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.05, "tooltip": "How firmly the window is held. 0 leaves the latent unchanged."}),
             },
         }
 
@@ -38,33 +37,28 @@ class H3AudioLock(ComfyNodeABC):
     FUNCTION = "lock"
     CATEGORY = "latent"
 
-    def lock(self, latent, audio_vae, audio, lock_strength, trim_frames=0):
+    def lock(self, latent, audio_vae, audio, lock_strength):
         """
         Args:
             latent: An AV latent whose ``samples`` is a NestedTensor of (video, audio).
             audio_vae: The H3 audio VAE.
-            audio: The song piece, starting at the clip's first new frame.
-            lock_strength: 0 to 1; the audio mask is ``1 - lock_strength`` over the piece.
-            trim_frames: Overlap pixel frames before the piece. Their audio stays unlocked.
+            audio: The clip's window of the song, starting at the clip's first frame.
+            lock_strength: 0 to 1; the audio mask is ``1 - lock_strength`` over the window.
 
         Returns:
-            The latent with the piece written in and masked, and ``audio`` as given.
+            The latent with the window written in and masked, and ``audio`` as given.
         """
         if lock_strength <= 0:
             return (latent, audio)
 
         video, audio_latent = latent["samples"].tensors
-        offset = round(trim_frames / H3_FPS * AUDIO_LATENT_FPS)
-        if offset >= audio_latent.shape[-1]:
-            return (latent, audio)
-
-        encoded = _encode_piece(audio_vae, audio)
-        count = min(audio_latent.shape[-1] - offset, encoded.shape[-1])
+        encoded = _encode_window(audio_vae, audio)
+        count = min(audio_latent.shape[-1], encoded.shape[-1])
         audio_latent = audio_latent.clone()
-        audio_latent[..., offset:offset + count] = encoded[..., :count].to(audio_latent)
+        audio_latent[..., :count] = encoded[..., :count].to(audio_latent)
 
         audio_mask = torch.ones_like(audio_latent)
-        audio_mask[..., offset:offset + count] = 1.0 - lock_strength
+        audio_mask[..., :count] = 1.0 - lock_strength
 
         out = latent.copy()
         out["samples"] = comfy.nested_tensor.NestedTensor((video, audio_latent))
@@ -81,7 +75,7 @@ def _video_mask(latent, video):
     return torch.ones_like(video)
 
 
-def _encode_piece(audio_vae, audio):
+def _encode_window(audio_vae, audio):
     waveform = audio["waveform"]
     if waveform.shape[1] == 1:
         waveform = waveform.expand(-1, 2, -1)

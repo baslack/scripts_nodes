@@ -45,61 +45,36 @@ def _piece(seconds, channels=2, rate=VAE_RATE):
     return {"waveform": torch.randn(1, channels, int(seconds * rate)), "sample_rate": rate}
 
 
-def _lock(latent, audio, vae=None, strength=1.0, trim=0):
-    return H3AudioLock().lock(latent, vae or FakeAudioVAE(), audio, strength, trim_frames=trim)
+def _lock(latent, audio, vae=None, strength=1.0):
+    return H3AudioLock().lock(latent, vae or FakeAudioVAE(), audio, strength)
 
 
 def _streams(latent):
     return latent["samples"].tensors[1], latent["noise_mask"].tensors[1]
 
 
-def test_trim_zero_locks_from_the_first_audio_frame():
+def test_window_is_written_and_locked_from_the_first_audio_frame():
     out, _ = _lock(_latent(), _piece(2))
     audio, mask = _streams(out)
     assert audio[0, 0, 0, 0] == 1
     assert (mask[..., :80] == 0).all()
-    assert (mask[..., 80:] == 1).all()
 
 
-def test_trim_leaves_the_overlap_untouched_and_unmasked():
-    out, _ = _lock(_latent(), _piece(2), trim=24)  # 1 s of overlap -> 40 audio frames
-    audio, mask = _streams(out)
-    assert (audio[..., :40] == 0).all()
-    assert (mask[..., :40] == 1).all()
-    assert audio[0, 0, 0, 40] == 1
-    assert (mask[..., 40:120] == 0).all()
-    assert (mask[..., 120:] == 1).all()
 
-
-def test_trim_22_frames_maps_at_40_audio_frames_per_second():
-    out, _ = _lock(_latent(), _piece(1), trim=22)
-    audio, mask = _streams(out)
-    offset = round(22 / 24 * 40)
-    assert (mask[..., :offset] == 1).all()
-    assert (mask[..., offset] == 0).all()
-    assert audio[0, 0, 0, offset] == 1
-
-
-def test_long_piece_is_cropped_to_the_clip():
-    out, _ = _lock(_latent(), _piece(8), trim=24)
+def test_long_window_is_cropped_to_the_clip():
+    out, _ = _lock(_latent(), _piece(8))
     audio, mask = _streams(out)
     assert audio.shape[-1] == AUDIO_FRAMES
-    assert audio[0, 0, 0, -1] == AUDIO_FRAMES - 40
-    assert (mask[..., 40:] == 0).all()
+    assert audio[0, 0, 0, -1] == AUDIO_FRAMES
+    assert (mask == 0).all()
 
 
-def test_short_piece_leaves_the_tail_unlocked():
+def test_short_window_leaves_the_tail_unlocked():
     out, _ = _lock(_latent(), _piece(1))
     audio, mask = _streams(out)
     assert (mask[..., :40] == 0).all()
     assert (mask[..., 40:] == 1).all()
     assert (audio[..., 40:] == 0).all()
-
-
-def test_piece_starting_past_the_clip_changes_nothing():
-    latent = _latent()
-    out, _ = _lock(latent, _piece(1), trim=24 * 6)
-    assert out is latent
 
 
 def test_mono_becomes_stereo():

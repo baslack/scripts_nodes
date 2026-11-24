@@ -108,6 +108,31 @@ Notes:
 - Layers outside the transformer blocks, such as a LoRA's text-refiner layers, are left out; the log says how many.
 - Plain LoRA only: LoCon mid weights, DoRA, LoHa and LoKr are refused. It chains with other nodes' block patches and with ordinary LoRA loaders.
 
+### H3 Audio Lock (`latent`)
+
+Keeps a song in a MiniMax H3 clip. H3 does not hold a reference song: reference audio and guides only steer the audio, and the sampler still generates it. This node encodes the song piece with the H3 audio VAE, writes it into the audio half of the AV latent, and lowers the audio noise mask over it so the sampler keeps it.
+
+| Input | Type | Description |
+|---|---|---|
+| `latent` | LATENT | The AV latent the sampler will denoise. |
+| `audio_vae` | VAE | The H3 audio VAE. |
+| `audio` | AUDIO | This clip's song piece. |
+| `fps` | FLOAT | Frames per second, to turn `trim_frames` into time. Default `24`. |
+| `lock_strength` | FLOAT | How firmly the piece is held, 0 to 1. The audio mask over the piece is `1 - lock_strength`, so `1` keeps it as is. `0` returns the latent unchanged. Default `1.0`. |
+| `trim_frames` | INT, optional | Overlap pixel frames carried from the previous clip. Default `0`. |
+
+| Output | Type | Description |
+|---|---|---|
+| `latent` | LATENT | The latent with the piece written in and `noise_mask` set. |
+| `audio` | AUDIO | The piece as given, for muxing later. |
+
+Notes:
+
+- Cut the song into back-to-back pieces, one per clip. A clip after the first starts with `trim_frames` pixel frames (about 22) carried from the previous clip, so its piece starts at that clip's first new frame: set `trim_frames` to the Motion Context RAM's `trim_frames`. The overlap's audio stays untouched and unlocked. With `0` the piece starts at the clip's first frame.
+- The audio latent runs at 40 frames per second, which is 5/3 per pixel frame at H3's 24 fps. The start is `round(trim_frames / fps * 40)`.
+- Mono audio is made stereo and resampled to the audio VAE's rate. A piece that runs past the clip's end is cropped; a shorter one leaves the rest of the audio unlocked.
+- The video mask is the latent's existing `noise_mask` video part, or all ones. The audio mask is `1 - lock_strength` over the piece and `1` elsewhere.
+
 ## Tests
 
 Run with ComfyUI's own Python; `pytest` is the only extra package. The GPU is not used.

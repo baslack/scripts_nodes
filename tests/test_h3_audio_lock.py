@@ -45,8 +45,8 @@ def _piece(seconds, channels=2, rate=VAE_RATE):
     return {"waveform": torch.randn(1, channels, int(seconds * rate)), "sample_rate": rate}
 
 
-def _lock(latent, audio, vae=None, fps=24.0, strength=1.0, trim=0):
-    return H3AudioLock().lock(latent, vae or FakeAudioVAE(), audio, fps, strength, trim_frames=trim)
+def _lock(latent, audio, vae=None, strength=1.0, trim=0):
+    return H3AudioLock().lock(latent, vae or FakeAudioVAE(), audio, strength, trim_frames=trim)
 
 
 def _streams(latent):

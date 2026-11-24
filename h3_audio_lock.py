@@ -3,7 +3,7 @@ import torch
 import comfy.audio
 import comfy.nested_tensor
 from comfy.comfy_types import IO, ComfyNodeABC, InputTypeDict
-from comfy_extras.nodes_minimax_h3 import AUDIO_LATENT_FPS, _encode_ref_audio
+from comfy_extras.nodes_minimax_h3 import AUDIO_LATENT_FPS, FPS as H3_FPS, _encode_ref_audio
 
 
 class H3AudioLock(ComfyNodeABC):
@@ -26,7 +26,6 @@ class H3AudioLock(ComfyNodeABC):
                 "latent": (IO.LATENT, {"tooltip": "The AV latent the sampler will denoise."}),
                 "audio_vae": (IO.VAE, {"tooltip": "The H3 audio VAE."}),
                 "audio": (IO.AUDIO, {"tooltip": "This clip's song piece."}),
-                "fps": (IO.FLOAT, {"default": 24.0, "min": 1.0, "max": 120.0, "step": 0.01, "tooltip": "Frames per second of the clip."}),
                 "lock_strength": (IO.FLOAT, {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.05, "tooltip": "How firmly the piece is held. 0 leaves the latent unchanged."}),
             },
             "optional": {
@@ -39,13 +38,12 @@ class H3AudioLock(ComfyNodeABC):
     FUNCTION = "lock"
     CATEGORY = "latent"
 
-    def lock(self, latent, audio_vae, audio, fps, lock_strength, trim_frames=0):
+    def lock(self, latent, audio_vae, audio, lock_strength, trim_frames=0):
         """
         Args:
             latent: An AV latent whose ``samples`` is a NestedTensor of (video, audio).
             audio_vae: The H3 audio VAE.
             audio: The song piece, starting at the clip's first new frame.
-            fps: Frames per second, to turn ``trim_frames`` into time.
             lock_strength: 0 to 1; the audio mask is ``1 - lock_strength`` over the piece.
             trim_frames: Overlap pixel frames before the piece. Their audio stays unlocked.
 
@@ -56,7 +54,7 @@ class H3AudioLock(ComfyNodeABC):
             return (latent, audio)
 
         video, audio_latent = latent["samples"].tensors
-        offset = round(trim_frames / fps * AUDIO_LATENT_FPS)
+        offset = round(trim_frames / H3_FPS * AUDIO_LATENT_FPS)
         if offset >= audio_latent.shape[-1]:
             return (latent, audio)
 
